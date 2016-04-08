@@ -1,9 +1,6 @@
-#!/usr/bin/env python
+#!/usr/local/python-3.4.1/bin/python3
 
-# Set this variable to "threading", "eventlet" or "gevent" to test the
-# different async modes, or leave it set to None for the application to choose
-# the best option based on available packages.
-async_mode = 'threading' 
+async_mode = 'threading'
 
 if async_mode is None:
     try:
@@ -12,54 +9,48 @@ if async_mode is None:
     except ImportError:
         pass
 
-    if async_mode is None:
-        try:
-            from gevent import monkey
-            async_mode = 'gevent'
-        except ImportError:
-            pass
+if async_mode is None:
+    async_mode = 'threading'
 
-    if async_mode is None:
-        async_mode = 'threading'
+print('async_mode is ' + async_mode)
 
-    print('async_mode is ' + async_mode)
-
-# monkey patching is necessary because this application uses a background
-# thread
 if async_mode == 'eventlet':
     import eventlet
     eventlet.monkey_patch()
-elif async_mode == 'gevent':
-    from gevent import monkey
-    monkey.patch_all()
 
-import time
 from threading import Thread
 from flask import Flask, render_template, session, request
-from flask_socketio import SocketIO, emit, join_room, leave_room, \
-    close_room, rooms, disconnect
+from flask import make_response
+from flask_socketio import SocketIO, emit, disconnect
 import pandas as pd
 import numpy as np
-import json
+import time
+import random
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+from matplotlib.figure import Figure
+from matplotlib.dates import DateFormatter
+import datetime
+from io import BytesIO
 
-app = Flask(__name__, static_url_path='/static')
+app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app, async_mode=async_mode)
 thread = None
 
+contectedClients = set()
 
 def background_thread():
-    """Example of how to send server generated events to clients."""
+    '''Send server generated events to clients.'''
+    global contectedClients
     count = 0
     while True:
         time.sleep(5)
-        count += 1
-        df = pd.DataFrame(np.random.randint(0,100,size=(5, 4)), columns=list('ABCD'))
-        #print(json.dumps(df.to_html()))
-        socketio.emit('my response',
-                      {'data': df.to_html(), 'count': count},
-                      namespace='/test')
-
+        print('contectedClients: {}'.format(len(contectedClients)))
+        if len(contectedClients) > 0:
+            count +1
+            df = pd.DataFrame(np.random.randint(0,100,size=(5,4)), columns=list('ABCD'))
+            print(df.to_json())
+            socketio.emit('my response', {'data': df.to_html(classes='table'), 'count': count}, namespace='/test')
 
 @app.route('/')
 def index():
@@ -70,51 +61,62 @@ def index():
         thread.start()
     return render_template('index.html')
 
+@app.route("/simple.png")
+def simple():
+    fig = Figure()
+    fig.set_facecolor('white')
+    fig.set_figwidth(14)
+    ax = fig.add_subplot(111)
+    x = []
+    y = []
+    now = datetime.datetime.now()
+    delta = datetime.timedelta(days=1)
+    for i in range(10):
+        x.append(now)
+        now += delta
+        y.append(random.randint(0,100))
+    ax.plot_date(x, y, '-')
+    ax.xaxis.set_major_formatter(DateFormatter('%Y-%m-%d'))
+    fig.autofmt_xdate()
+    canvas = FigureCanvas(fig)
+    png_output = BytesIO()
+    canvas.print_png(png_output)
+    response = make_response(png_output.getvalue())
+    response.headers['Content-Type'] = 'image/png'
+    return response
+
+
 
 @socketio.on('my event', namespace='/test')
 def test_message(message):
     session['receive_count'] = session.get('receive_count', 0) + 1
-    emit('my response',
-         {'data': message['data'], 'count': session['receive_count']})
-
+    emit('my response 2', {'data': message['data'], 'count': session['receive_count']})
 
 @socketio.on('my broadcast event', namespace='/test')
 def test_broadcast_message(message):
     session['receive_count'] = session.get('receive_count', 0) + 1
-    emit('my response',
-         {'data': message['data'], 'count': session['receive_count']},
-         broadcast=True)
-
-
-
-
-
-
-@socketio.on('my room event', namespace='/test')
-def send_room_message(message):
-    session['receive_count'] = session.get('receive_count', 0) + 1
-    emit('my response',
-         {'data': message['data'], 'count': session['receive_count']},
-         room=message['room'])
-
+    emit('my response 2', {'data': message['data'], 'count': session['receive_count']}, broadcast=True)
 
 @socketio.on('disconnect request', namespace='/test')
 def disconnect_request():
+    global contectedClients
     session['receive_count'] = session.get('receive_count', 0) + 1
-    emit('my response',
-         {'data': 'Disconnected!', 'count': session['receive_count']})
+    contectedClients.discard(request.sid)
+    emit('my response 2', {'data': 'Disconnected!', 'count': session['receive_count']})
     disconnect()
-
 
 @socketio.on('connect', namespace='/test')
 def test_connect():
-    emit('my response', {'data': 'Connected', 'count': 0})
-
+    global contectedClients
+    contectedClients.add(request.sid)
+    print(request.sid)
+    emit('my response 2', {'data': 'Connected', 'count': 0})
 
 @socketio.on('disconnect', namespace='/test')
 def test_disconnect():
+    global contectedClients 
+    contectedClients.discard(request.sid)
     print('Client disconnected', request.sid)
 
-
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    socketio.run(app, host='dev302', debug=True)
