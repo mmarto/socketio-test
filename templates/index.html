@@ -2,9 +2,10 @@
 <html>
 <head>
     <title>Real Time Table Data Test</title>
-    <script type="text/javascript" src="{{ url_for('static', filename='jquery.min.js')}}"></script>
+    <script type="text/javascript" src="{{ url_for('static', filename='jquery-1.12.3.min.js')}}"></script>
     <script type="text/javascript" src="{{ url_for('static', filename='socket.io-1.4.5.js')}}"></script>
     <script type="text/javascript" src="{{ url_for('static', filename='bootstrap.min.js')}}"></script>
+    <script src="https://d3js.org/d3.v3.min.js" charset="utf-8"></script>
     <link href="{{ url_for('static', filename='bootstrap.min.css')}}" rel="stylesheet">
     <style>
         .greenBg { background: #BCE954; }
@@ -16,11 +17,7 @@
             var socket = io.connect('http://' + document.domain + ':' + location.port + namespace);
             socket.on('my response', function(msg){
                 
-                d = new Date();
-                if ($('#img').length == 0){
-                    $('#imgDiv').html('<img id="img" src="">');
-                }
-                $('#img').attr("src", "/simple.png?"+d.getTime());
+                
 
                 $('#log').html(msg.data);    
                 $('tr').each(function(){
@@ -39,6 +36,20 @@
             socket.on('my response 2', function(msg){
                 $('#log2').html(msg.data);
             });
+            socket.on('my response 3', function(msg){
+                //alert(msg.data['data']);
+                //draw the graph                
+                d = new Date();
+                if ($('#img').length == 0){
+                    $('#imgDiv').html('<img id="img" src="">');
+                }
+
+                $('#img').attr("src", "{{ url_for('static', filename='simple.png')}}?"+d.getTime());
+                jsonObj = $.parseJSON(msg.data);
+                //$('#log3').html(jsonObj.data);
+                drawTable(jsonObj);
+            });
+
             socket.on('connect', function(){
                 socket.emit('my event', {data: 'I\'m connected!'});    
             });
@@ -58,6 +69,39 @@
                 return false;
             });
         });
+
+        function drawTable(data) {
+            $('#log3').html('<table id="jsonTable" class="table table-bordered table-hover"></table>');
+            drawHeader(data.columns, "index");
+            $.each(data.data, function (k,v) {
+                drawRow(v, data.index[k]);
+            });
+        }
+
+        function drawHeader(headerData, indexName) {
+            var row = $('<thead class="thead-inverse" />');
+            $("#jsonTable").append(row);
+            row.append($("<th>" + indexName + "</th>"));
+            $.each(headerData, function (k,v) {
+                row.append($("<th>" + v + "</th>"));
+            });            
+
+        }
+
+        function drawRow(rowData, ix) {
+            var row = $("<tr />");
+            $("#jsonTable").append(row); //this will append tr element to table... keep its reference for a while since we will add cels into it
+            row.append($("<td>" + ix + "</td>"));      
+            $.each(rowData, function (k,v) {
+                var td = $("<td>" + v + "</td>");
+                if (v >= 50){
+                    td.addClass('greenBg');
+                } else {
+                    td.addClass('redBg');
+                }
+                row.append(td);
+            });            
+        }
     </script>
 </head>
 <body>
@@ -75,6 +119,8 @@
     </form>
     <br />
     <div id="log2"></div>
+    <br />
+    <div id="log3" class='container'></div>
     <br />
     <div id="log" class='container'></div>
     <br />
